@@ -1,50 +1,102 @@
-#Differential Drive Robot RPM Pipeline
+# 🤖 Differential Drive Robot — RPM Pipeline
 
-## Overview
-This project subscribes to `cmd_vel` messages from a ROS2 bag file, computes
-left and right wheel RPMs for a differential drive robot, exchanges data between
-3 scripts, and plots the RPM values in real time.
+A complete robotics data pipeline that reads velocity commands from a ROS2 bag file, computes wheel RPMs, exchanges data between 3 scripts using shared memory and REST API, and plots the results live.
 
-## Data Flow
+---
+
+## 📊 Data Flow
+
 ```
-ROS2 Bag File
-     ↓  (publishes /cmd_vel)
-Script A (C++)  →  computes RPM  →  writes to Shared Memory
-                                          ↓
-Script B (C++)  →  reads Shared Memory  →  serves REST API (port 8080)
-                                          ↓
-Script C (Python)  →  fetches REST API  →  prints + plots RPM live
+┌─────────────┐     /cmd_vel      ┌─────────────┐
+│  ROS2 Bag   │ ─────────────────▶│  Script A   │
+│  (db3 file) │                   │  (C++ Node) │
+└─────────────┘                   └──────┬──────┘
+                                         │ POSIX Shared Memory
+                                         │ (no ROS/MQTT)
+                                         ▼
+                                  ┌─────────────┐
+                                  │  Script B   │
+                                  │  (C++ Node) │
+                                  └──────┬──────┘
+                                         │ REST API
+                                         │ GET /get_data_from_B
+                                         ▼
+                                  ┌─────────────┐     ┌──────────┐
+                                  │  Script C   │────▶│Live Plot │
+                                  │  (Python)   │     │(matplotlib)
+                                  └─────────────┘     └──────────┘
 ```
 
-## Robot Parameters
-- Wheel-to-wheel distance: 443 mm
-- Wheel diameter: 181 mm
+---
 
-## Scripts
+## 🤖 Robot Parameters
+
+| Parameter | Value |
+|---|---|
+| Wheel-to-wheel distance | 443 mm |
+| Wheel diameter | 181 mm |
+
+---
+
+## ⚙️ How It Works
 
 ### Script A (script_a.cpp)
-- ROS2 C++ node
-- Subscribes to `/cmd_vel` (geometry_msgs/Twist)
-- Computes left/right wheel RPM using differential drive kinematics
-- Writes RPM, velocities and epoch timestamp to POSIX shared memory (`/robot_data`)
+- ROS2 C++ node subscribing to `/cmd_vel` topic
+- Computes left/right wheel RPM using differential drive kinematics:
+```
+V_left  = V - (W × L/2)    RPM_left  = (V_left  / π×D) × 60
+V_right = V + (W × L/2)    RPM_right = (V_right / π×D) × 60
+```
+- Writes computed values to **POSIX shared memory** (`/robot_data`)
 
 ### Script B (script_b.cpp)
-- Reads shared memory from Script A at 10 Hz
-- Prints all values to console
-- Serves HTTP REST API on port 8080
-- Endpoint: `GET /get_data_from_B` — returns JSON payload
+- Reads shared memory from Script A at **10 Hz**
+- Prints all values to console every loop
+- Hosts **HTTP REST API** on port 8080
+- Endpoint: `GET /get_data_from_B`
 
 ### Script C (script_c.py)
 - Fetches data from Script B via REST API every 100ms
-- Prints fetched values to console
-- Live plots left and right wheel RPM using matplotlib
+- Prints all values to console
+- **Live plots** left and right wheel RPM using matplotlib
 
-## Dependencies
+---
 
-### ROS2
+## 🔌 API Reference
+
+**Endpoint:** `GET http://localhost:8080/get_data_from_B`
+
+**Response:**
+```json
+{
+  "rpm_left":    50.42,
+  "rpm_right":   55.10,
+  "linear_vel":  0.5,
+  "angular_vel": 0.1,
+  "timestamp_A": 1774176224111,
+  "timestamp_B": 1774176230591
+}
+```
+
+---
+
+## 🛡️ Resilience
+
+| Script Killed | What Happens |
+|---|---|
+| Script A | Script B keeps serving last valid shared memory values — no crash |
+| Script B | Script C catches HTTP error, retries next loop — no crash |
+| Script C | Scripts A and B completely unaffected |
+
+---
+
+## 📦 Dependencies
+
+### ROS2 Humble
 ```bash
 sudo apt install ros-humble-rclcpp
 sudo apt install ros-humble-geometry-msgs
+sudo apt install ros-humble-rosbag2
 ```
 
 ### C++ Libraries
@@ -52,7 +104,7 @@ sudo apt install ros-humble-geometry-msgs
 # nlohmann json
 sudo apt install nlohmann-json3-dev
 
-# cpp-httplib (single header — already in include/ folder)
+# cpp-httplib — already included in include/ folder
 ```
 
 ### Python
@@ -60,72 +112,90 @@ sudo apt install nlohmann-json3-dev
 pip install flask requests matplotlib
 ```
 
-## Build
+---
+
+## 🔨 Build
 
 ```bash
-cd ~/rse004_ws
-colcon build --packages-select rse004_robot
+cd ~/rse_ws
+colcon build --packages-select rse_robot
 source install/setup.bash
 ```
 
-## Launch
+---
 
-Open 4 terminals and run in this order:
+## 🚀 Launch
+
+Open **4 terminals** and run in this exact order:
 
 ### Terminal 1 — Script A
 ```bash
-source ~/rse004_ws/install/setup.bash
-ros2 run rse004_robot script_a
+source ~/rse_ws/install/setup.bash
+ros2 run rse_robot script_a
 ```
 
-### Terminal 2 — Bag File
+### Terminal 2 — Script B
 ```bash
-ros2 bag play ~/rse004_ws/src/rse004_robot/bag/rse_assignment_unbox_robotics.db3
+~/rse_ws/install/rse_robot/lib/rse004_robot/script_b
 ```
 
-### Terminal 3 — Script B
+### Terminal 3 — Script C
 ```bash
-~/rse004_ws/install/rse004_robot/lib/rse004_robot/script_b
+python3 ~/rse_ws/src/rse_robot/src/script_c.py
 ```
 
-### Terminal 4 — Script C
+### Terminal 4 — Bag File (start last!)
 ```bash
-python3 ~/rse004_ws/src/rse004_robot/src/script_c.py
+ros2 bag play ~/rse_ws/src/rse_robot/bag/Bag_FILE.db3
 ```
 
-## API Reference
+---
 
-**Endpoint:** `GET http://localhost:8080/get_data_from_B`
+## 📁 Folder Structure
 
-**Response:**
-```json
-{
-  "rpm_left": 50.42,
-  "rpm_right": 55.10,
-  "linear_vel": 0.5,
-  "angular_vel": 0.1,
-  "timestamp_A": 1774176224111,
-  "timestamp_B": 1774176230591
-}
 ```
-
-## Resilience
-- If Script A crashes → Script B keeps serving last valid shared memory values
-- If Script B crashes → Script C catches HTTP error and retries next loop
-- If Script C crashes → Scripts A and B are completely unaffected
-
-## Folder Structure
-```
-rse004_robot/
+rse_robot/
 ├── src/
-│   ├── script_a.cpp
-│   ├── script_b.cpp
-│   └── script_c.py
+│   ├── script_a.cpp        # ROS2 subscriber + shared memory writer
+│   ├── script_b.cpp        # Shared memory reader + REST API server
+│   └── script_c.py         # REST API client + live plotter
 ├── include/
-│   └── httplib.h
+│   └── httplib.h           # HTTP library (single header)
 ├── bag/
-│   └── rse_assignment_unbox_robotics.db3
+│   └── Bag_FILE.db3
 ├── CMakeLists.txt
 ├── package.xml
-└── README.md
+├── README.md
+└── LAUNCH.md               # detailed launch instructions
 ```
+
+---
+
+## 📈 Sample Output
+
+**Terminal (Script A):**
+```
+[INFO] L: 50.42 | R: 55.10 | V: 0.50 | W: 0.10 | T: 1774176224111
+```
+
+**Terminal (Script B):**
+```
+L_RPM: 50.42 R_RPM: 55.10 V: 0.5 W: 0.1 T_A: 1774176224111 T_B: 1774176230591
+```
+
+**Terminal (Script C):**
+```
+L_RPM: 50.42 | R_RPM: 55.10 | V: 0.50 | W: 0.10 | T_A: 1774176224111 | T_B: 1774176230591
+```
+
+---
+
+## 🏆 Design Highlights
+
+- **OOP Design** — all scripts use class-based structure
+- **No pub-sub** between A and B — pure POSIX shared memory
+- **REST API** between B and C — clean JSON interface
+- **Resilient** — each script handles failures of others gracefully
+- **10 Hz loop** — Script B runs at exactly 10Hz (100ms sleep)
+
+---
