@@ -150,6 +150,13 @@ ros2 bag play ~/rse_ws/src/rse_robot/bag/Bag_FILE.db3
 ```
 
 ---
+## 📈 RPM Plot Output
+
+![Wheel RPM Live Plot](Plot_1.png)
+
+> Blue = Left Wheel RPM | Red = Right Wheel RPM  
+> The gap between lines represents the robot turning left (W > 0)
+
 
 ## 📁 Folder Structure
 
