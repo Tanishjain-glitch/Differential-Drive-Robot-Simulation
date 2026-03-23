@@ -1,4 +1,4 @@
-# RSE004 — Main Launch Document
+# Main Launch Document
 ## How to Install, Build and Run
 
 ---
