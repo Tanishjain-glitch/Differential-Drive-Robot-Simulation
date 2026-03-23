@@ -1,4 +1,4 @@
-# RSE004 — Differential Drive Robot RPM Pipeline
+#Differential Drive Robot RPM Pipeline
 
 ## Overview
 This project subscribes to `cmd_vel` messages from a ROS2 bag file, computes
